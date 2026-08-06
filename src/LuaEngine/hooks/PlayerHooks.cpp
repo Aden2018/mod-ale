@@ -46,7 +46,7 @@ bool ALE::OnCommand(ChatHandler& handler, const char* text)
     if (!player || player->GetSession()->GetSecurity() >= SEC_ADMINISTRATOR)
     {
         std::string reload = text;
-        std::transform(reload.begin(), reload.end(), reload.begin(), ::tolower);
+        std::transform(reload.begin(), reload.end(), reload.begin(), [](unsigned char c) { return ::tolower(c); });
         if (reload.find("reload ale") == 0)
         {
             ReloadALE();

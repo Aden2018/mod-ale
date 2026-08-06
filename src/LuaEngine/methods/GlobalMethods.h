@@ -75,7 +75,7 @@ namespace LuaGlobalFunctions
         }
 
         std::string lower = val;
-        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return ::tolower(c); });
         
         if (lower == "true")
         {
