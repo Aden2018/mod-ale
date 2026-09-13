@@ -85,7 +85,7 @@ void ALEFileWatcher::ScanDirectory(const std::string& path)
 {
     try
     {
-        boost::filesystem::path dir(path);
+        boost::filesystem::path dir = ALEPathUtil::FromUtf8String(path);
         
         if (!boost::filesystem::exists(dir) || !boost::filesystem::is_directory(dir))
             return;
@@ -94,7 +94,7 @@ void ALEFileWatcher::ScanDirectory(const std::string& path)
         
         for (boost::filesystem::directory_iterator dir_iter(dir); dir_iter != end_iter; ++dir_iter)
         {
-            std::string fullpath = dir_iter->path().generic_string();
+            std::string fullpath = ALEPathUtil::GetFullpathUtf8(dir_iter);
             
             if (boost::filesystem::is_directory(dir_iter->status()))
             {
@@ -102,11 +102,14 @@ void ALEFileWatcher::ScanDirectory(const std::string& path)
             }
             else if (boost::filesystem::is_regular_file(dir_iter->status()))
             {
-                std::string filename = dir_iter->path().filename().generic_string();
+                std::string filename = ALEPathUtil::GetFilenameUtf8(dir_iter);
                 
                 if (IsWatchedFileType(filename))
                 {
-                    fileTimestamps[fullpath] = boost::filesystem::last_write_time(dir_iter->path());
+                    boost::system::error_code ec;
+                    std::time_t writeTime = boost::filesystem::last_write_time(dir_iter->path(), ec);
+                    if (!ec)
+                        fileTimestamps[fullpath] = writeTime;
                 }
             }
         }
@@ -123,7 +126,7 @@ void ALEFileWatcher::CheckForChanges()
     
     try
     {
-        boost::filesystem::path dir(watchPath);
+        boost::filesystem::path dir = ALEPathUtil::FromUtf8String(watchPath);
         
         if (!boost::filesystem::exists(dir) || !boost::filesystem::is_directory(dir))
             return;
@@ -132,13 +135,14 @@ void ALEFileWatcher::CheckForChanges()
         
         for (boost::filesystem::directory_iterator dir_iter(dir); dir_iter != end_iter; ++dir_iter)
         {
-            if (ShouldReloadFile(dir_iter->path().generic_string()))
+            if (ShouldReloadFile(ALEPathUtil::GetFullpathUtf8(dir_iter)))
                 hasChanges = true;
         }
         
         for (auto it = fileTimestamps.begin(); it != fileTimestamps.end();)
         {
-            if (!boost::filesystem::exists(it->first))
+            boost::filesystem::path filePath = ALEPathUtil::FromUtf8String(it->first);
+            if (!boost::filesystem::exists(filePath))
             {
                 ALE_LOG_DEBUG("[ALEFileWatcher]: File deleted: {}", it->first);
                 it = fileTimestamps.erase(it);
@@ -169,7 +173,7 @@ bool ALEFileWatcher::ShouldReloadFile(const std::string& filepath)
 {
     try
     {
-        boost::filesystem::path file(filepath);
+        boost::filesystem::path file = ALEPathUtil::FromUtf8String(filepath);
         
         if (boost::filesystem::is_directory(file))
         {
@@ -177,7 +181,7 @@ bool ALEFileWatcher::ShouldReloadFile(const std::string& filepath)
             
             for (boost::filesystem::directory_iterator dir_iter(file); dir_iter != end_iter; ++dir_iter)
             {
-                if (ShouldReloadFile(dir_iter->path().generic_string()))
+                if (ShouldReloadFile(ALEPathUtil::GetFullpathUtf8(dir_iter)))
                     return true;
             }
             return false;
@@ -186,11 +190,15 @@ bool ALEFileWatcher::ShouldReloadFile(const std::string& filepath)
         if (!boost::filesystem::is_regular_file(file))
             return false;
             
-        std::string filename = file.filename().generic_string();
+        std::string filename = ALEPathUtil::ToUtf8String(file.filename());
 
         if (!IsWatchedFileType(filename)) return false;
             
-        auto currentTime = boost::filesystem::last_write_time(file);
+        boost::system::error_code ec;
+        auto currentTime = boost::filesystem::last_write_time(file, ec);
+        if (ec)
+            return false;
+
         auto it = fileTimestamps.find(filepath);
         
         if (it == fileTimestamps.end())

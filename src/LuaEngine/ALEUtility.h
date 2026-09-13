@@ -11,11 +11,14 @@
 #include <unordered_set>
 #include <mutex>
 #include <memory>
+#include <string>
 #include "Common.h"
 #include "SharedDefines.h"
 #include "ObjectGuid.h"
 #include "Database/QueryResult.h"
 #include "Log.h"
+#include "Util.h"
+#include <boost/filesystem.hpp>
 
 typedef QueryResult ALEQuery;
 #define GET_GUID                GetGUID
@@ -131,5 +134,53 @@ namespace ALEUtil
      */
     unsigned char* DecodeData(const char* data, size_t *output_length);
 };
+
+namespace ALEPathUtil
+{
+    // Convert boost::filesystem::path to UTF-8 encoded std::string
+    // On Windows: converts from wide string (UTF-16) using WStrToUtf8
+    // On Linux/macOS: uses native UTF-8 generic_string directly
+    inline std::string ToUtf8String(const boost::filesystem::path& path)
+    {
+#if AC_PLATFORM == AC_PLATFORM_WINDOWS
+        std::wstring wpath = path.wstring();
+        std::string result;
+        if (WStrToUtf8(wpath, result))
+            return result;
+        // Fallback: if conversion fails, use narrow string (may have ANSI encoding issues, but won't crash)
+        return path.string();
+#else
+        return path.generic_string();
+#endif
+    }
+
+    // Convert UTF-8 encoded std::string to boost::filesystem::path
+    // On Windows: converts from UTF-8 to wide string (UTF-16) first
+    // On Linux/macOS: uses UTF-8 string directly
+    inline boost::filesystem::path FromUtf8String(const std::string& utf8Path)
+    {
+#if AC_PLATFORM == AC_PLATFORM_WINDOWS
+        std::wstring wpath;
+        if (Utf8toWStr(utf8Path, wpath))
+            return boost::filesystem::path(wpath);
+        // Fallback: if conversion fails, use narrow string
+        return boost::filesystem::path(utf8Path);
+#else
+        return boost::filesystem::path(utf8Path);
+#endif
+    }
+
+    // Get filename as UTF-8 string from a directory_iterator entry
+    inline std::string GetFilenameUtf8(const boost::filesystem::directory_iterator& dir_iter)
+    {
+        return ToUtf8String(dir_iter->path().filename());
+    }
+
+    // Get full path as UTF-8 string from a directory_iterator entry
+    inline std::string GetFullpathUtf8(const boost::filesystem::directory_iterator& dir_iter)
+    {
+        return ToUtf8String(dir_iter->path());
+    }
+}
 
 #endif

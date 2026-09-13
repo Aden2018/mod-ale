@@ -175,6 +175,11 @@ private:
     static int LoadCompiledScript(lua_State* L, const std::string& filepath);
     static std::time_t GetFileModTime(const std::string& filepath);
     static std::time_t GetFileModTimeWithCache(const std::string& filepath);
+
+    // Safely read a file into a byte buffer using cross-platform unicode-aware paths
+    static bool ReadFileToBuffer(const std::string& utf8Filepath, std::vector<char>& outBuffer);
+    // Safely load a .lua file using UTF-8 path (replaces raw luaL_loadfile for Windows unicode path support)
+    static int SafeLoadLuaFile(lua_State* L, const std::string& utf8Filepath);
     
     // Global cache management
     static bool CompileScriptToGlobalCache(const std::string& filepath);

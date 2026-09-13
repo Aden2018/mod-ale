@@ -393,10 +393,19 @@ void ALE::AddScriptPath(std::string filename, const std::string& fullpath)
 
 std::time_t ALE::GetFileModTime(const std::string& filepath)
 {
+#if AC_PLATFORM == AC_PLATFORM_WINDOWS
+    boost::filesystem::path fsPath = ALEPathUtil::FromUtf8String(filepath);
+    boost::system::error_code ec;
+    std::time_t modTime = boost::filesystem::last_write_time(fsPath, ec);
+    if (ec)
+        return 0;
+    return modTime;
+#else
     struct stat fileInfo;
     if (stat(filepath.c_str(), &fileInfo) == 0)
         return fileInfo.st_mtime;
     return 0;
+#endif
 }
 
 std::time_t ALE::GetFileModTimeWithCache(const std::string& filepath)
@@ -418,7 +427,7 @@ bool ALE::CompileScriptToGlobalCache(const std::string& filepath)
     if (!tempL)
         return false;
 
-    int result = luaL_loadfile(tempL, filepath.c_str());
+    int result = SafeLoadLuaFile(tempL, filepath);
     if (result != LUA_OK)
     {
         lua_close(tempL);
@@ -572,7 +581,7 @@ int ALE::LoadScriptWithCache(lua_State* L, const std::string& filepath, bool isM
     }
     else
     {
-        return luaL_loadfile(L, filepath.c_str());
+        return SafeLoadLuaFile(L, filepath);
     }
 }
 
@@ -596,21 +605,51 @@ size_t ALE::GetGlobalCacheSize()
     return globalBytecodeCache.size();
 }
 
-int ALE::LoadCompiledScript(lua_State* L, const std::string& filepath)
+bool ALE::ReadFileToBuffer(const std::string& utf8Filepath, std::vector<char>& outBuffer)
 {
-    std::ifstream file(filepath, std::ios::binary);
+    boost::filesystem::path fsPath = ALEPathUtil::FromUtf8String(utf8Filepath);
+
+#if AC_PLATFORM == AC_PLATFORM_WINDOWS
+    // Use wide-char stream on Windows to support non-ANSI (Chinese etc.) filenames
+    std::ifstream file(fsPath.wstring(), std::ios::binary);
+#else
+    std::ifstream file(fsPath, std::ios::binary);
+#endif
+
     if (!file.is_open())
-        return LUA_ERRFILE;
+        return false;
 
     file.seekg(0, std::ios::end);
-    size_t fileSize = file.tellg();
+    std::streamsize fileSize = file.tellg();
     file.seekg(0, std::ios::beg);
 
-    std::vector<char> buffer(fileSize);
-    file.read(buffer.data(), fileSize);
-    file.close();
+    if (fileSize < 0)
+        return false;
 
-    return luaL_loadbuffer(L, buffer.data(), fileSize, filepath.c_str());
+    outBuffer.resize(static_cast<size_t>(fileSize));
+    if (fileSize > 0 && !file.read(outBuffer.data(), fileSize))
+        return false;
+
+    file.close();
+    return true;
+}
+
+int ALE::SafeLoadLuaFile(lua_State* L, const std::string& utf8Filepath)
+{
+    std::vector<char> buffer;
+    if (!ReadFileToBuffer(utf8Filepath, buffer))
+        return LUA_ERRFILE;
+
+    return luaL_loadbuffer(L, buffer.data(), buffer.size(), utf8Filepath.c_str());
+}
+
+int ALE::LoadCompiledScript(lua_State* L, const std::string& filepath)
+{
+    std::vector<char> buffer;
+    if (!ReadFileToBuffer(filepath, buffer))
+        return LUA_ERRFILE;
+
+    return luaL_loadbuffer(L, buffer.data(), buffer.size(), filepath.c_str());
 }
 
 // Finds lua script files from given path (including subdirectories) and pushes them to scripts
@@ -618,7 +657,7 @@ void ALE::GetScripts(std::string path)
 {
     ALE_LOG_DEBUG("[ALE]: GetScripts from path `{}`", path);
 
-    boost::filesystem::path someDir(path);
+    boost::filesystem::path someDir = ALEPathUtil::FromUtf8String(path);
     boost::filesystem::directory_iterator end_iter;
 
     if (boost::filesystem::exists(someDir) && boost::filesystem::is_directory(someDir))
@@ -634,15 +673,16 @@ void ALE::GetScripts(std::string path)
 
         for (boost::filesystem::directory_iterator dir_iter(someDir); dir_iter != end_iter; ++dir_iter)
         {
-            std::string fullpath = dir_iter->path().generic_string();
+            std::string fullpath = ALEPathUtil::GetFullpathUtf8(dir_iter);
 
             // Check if file is hidden
 #ifdef ALE_WINDOWS
-            DWORD dwAttrib = GetFileAttributes(fullpath.c_str());
+            boost::filesystem::path fsPath = dir_iter->path();
+            DWORD dwAttrib = GetFileAttributesW(fsPath.wstring().c_str());
             if (dwAttrib != INVALID_FILE_ATTRIBUTES && (dwAttrib & FILE_ATTRIBUTE_HIDDEN))
                 continue;
 #else
-            std::string name = dir_iter->path().filename().generic_string().c_str();
+            std::string name = ALEPathUtil::GetFilenameUtf8(dir_iter);
             if (name[0] == '.')
                 continue;
 #endif
@@ -657,7 +697,7 @@ void ALE::GetScripts(std::string path)
             if (boost::filesystem::is_regular_file(dir_iter->status()))
             {
                 // was file, try add
-                std::string filename = dir_iter->path().filename().generic_string();
+                std::string filename = ALEPathUtil::GetFilenameUtf8(dir_iter);
                 AddScriptPath(filename, fullpath);
             }
         }
@@ -755,7 +795,7 @@ void ALE::RunScripts()
         }
         else
         {
-           if (luaL_loadfile(L, it->filepath.c_str()))
+           if (SafeLoadLuaFile(L, it->filepath))
            {
                // Stack: package, modules, errmsg
                ALE_LOG_ERROR("[ALE]: Error loading `{}`", it->filepath);
