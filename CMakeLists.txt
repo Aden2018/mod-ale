@@ -19,3 +19,18 @@ if (LUA_VERSION MATCHES "luajit")
 else()
   add_subdirectory(src/lualib/lua)
 endif()
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/modules/mod-playerbots/src")
+    if(TARGET modules)
+        target_include_directories(modules PRIVATE
+            "${CMAKE_SOURCE_DIR}/modules/mod-playerbots/src"
+            "${CMAKE_SOURCE_DIR}/modules/mod-playerbots/src/Bot"
+        )
+    else()
+        # Fallback for older AzerothCore module layouts.
+        include_directories(
+            "${CMAKE_SOURCE_DIR}/modules/mod-playerbots/src"
+            "${CMAKE_SOURCE_DIR}/modules/mod-playerbots/src/Bot"
+        )
+    endif()
+endif()
